@@ -1,4 +1,5 @@
 import torch
+import numpy
 
 
 def laplacian_matrix(adj_matrix):
@@ -43,9 +44,14 @@ def gwg_indexes(mtx):
         i, j = indices[0][sampled_index].item(), indices[1][sampled_index].item()
     return(i,j)
 
+def rand_indexes(n):
+    i, j = numpy.random.randint(n), numpy.random.randint(n)
+    while i == j:
+        j = numpy.random.randint(n)
+    return i, j
 
 
-#classic, uniform proposal
+# classic, uniform proposal
 def unif_move(mtx):
     n = mtx.size(0)
     i, j = rand_indexes(n)
@@ -55,7 +61,7 @@ def unif_move(mtx):
     return(nmtx,i,j)
 
 
-#gibbs-with-gradients proposal
+# gibbs-with-gradients proposal
 def gwg_move(mtx):
     i, j = gwg_indexes(mtx)
     nmtx = mtx.clone().detach()

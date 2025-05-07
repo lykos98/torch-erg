@@ -9,7 +9,7 @@ from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 
 # test grid of reference, can either be 30_ieee, 118_ieee or 300_ieee
-name = '300_ieee'
+name = '30_ieee'
 
 # soft connectivity constraint flag, if false then hard constraint is used
 SOFT_CONN = True
@@ -31,21 +31,30 @@ obs = sampler.observables(ordmat)
 parlist = sampler.run(graph=ordmat,
                       observables=obs,
                       params=betas,
-                      niter=5000,
+                      niter=50000,
                       params_update_every=3,
                       save_every=10,
                       save_params=True,
-                      alpha=0.01,                      
+                      alpha=0.001,                      
                       min_change = 0.01)
 
 params = [p.cpu().numpy() for p in parlist[0]]
 parlist_np = np.array(params)
 print(parlist_np[-1])
 print(parlist_np.shape)
-for p in range(parlist_np.shape[1]):
-    plt.figure()
-    plt.plot(parlist_np[:,p], '.-')
-    plt.savefig(f"convergence_plot_{p}.png")
 
+w = 10
+h = 8
+scale = 0.6
+
+w = int(w * scale)
+h = int(h * scale)
+
+plt.figure(figsize = (parlist_np.shape[1] * w, h))
+for p in range(parlist_np.shape[1]):
+    plt.subplot(1,parlist_np.shape[1], p + 1)
+    plt.plot(parlist_np[:,p], '.-')
+
+plt.savefig("convergence_plot_all.png")
 
 
