@@ -39,7 +39,7 @@ class BaseSampler(ABC):
         updated_params.detach_()
 
         min_change_tensor = torch.ones_like(updated_params, dtype = torch.float32, device = self.backend) * min_change
-        change = alpha * torch.max(updated_params.abs(), min_change_tensor) * torch.sign(observed - reference)
+        change = - alpha * torch.max(updated_params.abs(), min_change_tensor) * torch.sign(observed - reference)
         updated_params += change
         return updated_params
     
@@ -61,9 +61,9 @@ class BaseSampler(ABC):
         start_obs    = observables.clone().to(self.backend)
 
 
-        current_graph  = start_graph.clone().to(self.backend)
-        current_params = start_params.clone().to(self.backend)
-        current_obs    = start_obs.clone().to(self.backend)
+        current_graph  = start_graph.clone().detach().to(self.backend)
+        current_params = start_params.clone().detach().to(self.backend)
+        current_obs    = start_obs.clone().detach().to(self.backend)
 
         #bootstrap
         current_graph.requires_grad = True
