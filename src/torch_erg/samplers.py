@@ -99,6 +99,9 @@ class BaseSampler(ABC):
                 if accepted_steps % params_update_every == 0:
                     update_steps += 1
                     current_params = self._update_parameters(current_obs, start_obs, current_params, alpha, min_change)
+
+                if accepted_steps % 1000:
+                    print(f"step {accepted_steps} ref {start_obs} current {current_obs}")
             else:
                 rejected_samples += 1
             if accepted_steps % save_every == 0:
