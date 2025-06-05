@@ -1,8 +1,8 @@
 import pandas as pd
 import io
 import re
-import torch_erg.pg_utils as sc
-import torch_erg.ham_stats as hc
+import src.torch_erg.pg_utils as sc
+import src.torch_erg.ham_stats as hc
 import torch
 
 def load_pglib_opf(path):

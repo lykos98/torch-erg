@@ -68,3 +68,14 @@ def gwg_move(mtx):
     nmtx[i,j] = 1 - nmtx[i,j]
     nmtx[j,i] = nmtx[i,j]
     return nmtx
+
+
+def index_ravel_sampler(vec, mtx):
+    i = 0
+    j = 0
+    while(i==j):
+        sampled_index = torch.multinomial(vec, 1).item()
+        i = sampled_index // mtx.shape[1]
+        j = sampled_index % mtx.shape[1]
+    #print(i,j)
+    return(i,j)

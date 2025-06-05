@@ -1,5 +1,5 @@
 import torch
-import torch_erg.betas_compute as bc 
+import src.torch_erg.betas_compute as bc 
 
 
 
