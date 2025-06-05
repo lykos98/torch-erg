@@ -1,5 +1,5 @@
-from torch_erg import load_pglib_opf as lp
-from torch_erg.samplers import GWGSampler
+from src.torch_erg import load_pglib_opf as lp
+from src.torch_erg.samplers import GWGSampler, MHSampler
 import torch
 import numpy as np
 
@@ -25,15 +25,15 @@ G_sparse = ordmat.cpu().numpy()  # Create sparse matrix
 n_components = connected_components(csr_matrix(G_sparse))
 print("Number of connected components in the graph:", n_components[0])
 
-betas = torch.tensor([0, 0, 0], dtype=float)
+betas = torch.tensor([0., 0., 0.], dtype=float)
 sampler = GWGSampler(backend="cuda")
 obs = sampler.observables(ordmat)
-parlist = sampler.run(graph=ordmat,
+parlist = sampler.param_run(graph=ordmat,
                       observables=obs,
                       params=betas,
-                      niter=50000,
+                      niter=100000,
                       params_update_every=3,
-                      save_every=10,
+                      save_every=50,
                       save_params=True,
                       alpha=0.001,                      
                       min_change = 0.01)

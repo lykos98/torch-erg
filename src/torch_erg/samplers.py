@@ -43,17 +43,17 @@ class BaseSampler(ABC):
         updated_params += change
         return updated_params
     
-    def param_run(self, graph:               torch.tensor, 
-                        observables:         torch.tensor, 
-                        params:              torch.tensor,
-                        niter:               int, 
-                        params_update_every: int,
-                        save_every:          int, 
-                        save_params:         bool,
-                        alpha:               float,
-                        min_change:          float,
-                        save_graph:          bool = True,
-                        verbose_level:       int = 0
+    def param_run(self,   graph:               torch.tensor, 
+                    observables:         torch.tensor, 
+                    params:              torch.tensor,
+                    niter:               int, 
+                    params_update_every: int,
+                    save_every:          int, 
+                    save_params:         bool,
+                    alpha:               float,
+                    min_change:          float,
+                    save_graph:          bool = True,
+                    verbose_level:       int = 0
             ) -> list[torch.tensor]:
 
         start_graph  = graph.clone().to(self.backend)
@@ -75,15 +75,15 @@ class BaseSampler(ABC):
         return_params = []
         return_graph  = []
         
+        #some logging info, for example using gpu or cpu
+        #graph dimensions, paramters
         update_steps = 0
         rejected_samples = 0
-
-        mean_updates = 0
-        running_mean = torch.zeros_like(start_obs)
 
         for it in tqdm(range(niter)):
             #uniform indexes selection
             new_graph, acceptance_prob = self.proposal(current_graph, current_obs, current_params, current_hamiltonian)
+
 
             p = torch.rand(1).item()
 
@@ -94,10 +94,7 @@ class BaseSampler(ABC):
                 current_graph = new_graph
                 current_obs = self.observables(new_graph)
                 current_hamiltonian = self._hamiltonian(current_obs, current_params)
-
-                with torch.no_grad():
-                    running_mean += current_obs
-                    mean_updates += 1
+                #print("current obs are:", current_obs)
 
                 accepted_steps += 1
                 if accepted_steps % params_update_every == 0:
@@ -107,7 +104,7 @@ class BaseSampler(ABC):
             else:
                 rejected_samples += 1
             if accepted_steps % save_every == 0:
-                #print('number of effective updates is: ', update_steps)
+                print('number of effective updates is: ', update_steps)
                 if save_graph:
                     return_graph.append(current_graph.clone().detach())
                 if save_params:
@@ -117,7 +114,6 @@ class BaseSampler(ABC):
         print('number of accepted steps is: ', accepted_steps)
         print('number of rejected samples: ', rejected_samples)
         print('number of effective updates is: ', update_steps)
-        print('obs values in avg: ', running_mean/mean_updates)
         
         return_params.append(current_params.clone().detach())
         return_graph.append(current_graph.clone().detach())
@@ -153,6 +149,8 @@ class BaseSampler(ABC):
 
         return_graph  = []
         return_obs = []
+        #some logging info, for example using gpu or cpu
+        #graph dimensions, paramters
         
         rejected_samples = 0
 
@@ -205,6 +203,9 @@ class MHSampler(BaseSampler):
         #print("obs are: ", new_obs)
         #print("params are: ", params)
         new_ham = self._hamiltonian(new_obs,params)
+
+        
+
 
         qq = torch.exp(new_ham - ham) 
         #print("new ham is: ", new_ham)
