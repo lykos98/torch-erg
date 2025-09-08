@@ -104,7 +104,7 @@ class BaseSampler(ABC):
             else:
                 rejected_samples += 1
             if accepted_steps % save_every == 0:
-                print('number of effective updates is: ', update_steps)
+                #print('number of effective updates is: ', update_steps)
                 if save_graph:
                     return_graph.append(current_graph.clone().detach())
                 if save_params:
@@ -119,17 +119,18 @@ class BaseSampler(ABC):
         return_graph.append(current_graph.clone().detach())
         return return_params, return_graph
     
-    def sample_run(self,   graph:               torch.tensor, 
-                    observables:         torch.tensor, 
-                    params:              torch.tensor,
-                    niter:               int, 
-                    save_every:          int,
-                    burn_in:             int,
-                    verbose_level:       int = 0
+    def sample_run(self, graph:               torch.tensor, 
+                         observables:         torch.tensor, 
+                         params:              torch.tensor,
+                         niter:               int, 
+                         save_every:          int,
+                         burn_in:             float = 0.,
+                         verbose_level:       int = 0
             ) -> list[torch.tensor]:
 
-        if burn_in > niter:
-            raise Exception("burn-in time is greater than number of iterations")
+        assert burn_in >= 0. and burn_in < 1., "Invalid burn in fraction, should be [0., 1.)"
+
+        burn_in_iter = int(burn_in * niter)
         start_graph  = graph.clone().to(self.backend)
         start_params = params.clone().to(self.backend)
         start_obs    = observables.clone().to(self.backend)
@@ -173,7 +174,7 @@ class BaseSampler(ABC):
                 accepted_steps += 1
             else:
                 rejected_samples += 1
-            if it > burn_in:
+            if it > burn_in_iter:
                 if accepted_steps % save_every == 0:
                     return_graph.append(current_graph.clone().detach())
                     return_obs.append(self.observables(current_graph).clone().detach())
@@ -192,7 +193,7 @@ class BaseSampler(ABC):
     
 
 
-class MHSampler(BaseSampler):
+class MHSampler(BaseSampler, ABC):
     def __init__(self, backend: str):
         super().__init__(backend)
     
@@ -215,16 +216,14 @@ class MHSampler(BaseSampler):
         
         return new_mtx, acceptance_prob
 
+    @abstractmethod
     def observables(self, mtx):
-        edges = torch.sum(mtx)/2
-        triangles = torch.trace(torch.matmul(torch.matmul(mtx,mtx),mtx))/6
-        ac = torch.linalg.eigvalsh(laplacian_matrix(mtx))[1]
-        return(torch.stack([edges, triangles,ac]))
+        pass
 
 
 
 
-class GWGSampler(BaseSampler):
+class GWGSampler(BaseSampler, ABC):
     def __init__(self, backend: str):
         super().__init__(backend)
 
@@ -272,11 +271,9 @@ class GWGSampler(BaseSampler):
         
         return new_mtx, acceptance_prob
 
+    @abstractmethod
     def observables(self, mtx):
-        edges = torch.sum(mtx)/2
-        triangles = torch.trace(torch.matmul(torch.matmul(mtx,mtx),mtx))/6
-        ac = torch.linalg.eigvalsh(laplacian_matrix(mtx))[1]
-        return(torch.stack([edges, triangles,ac]))
+        pass
 
 
 
