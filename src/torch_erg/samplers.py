@@ -185,11 +185,9 @@ class BaseSampler(ABC):
         print('number of rejected samples: ', rejected_samples)
         return_graph.append(current_graph.clone().detach())
         return_obs.append(self.observables(current_graph).clone().detach())
-        try:
-            print(torch.mean(return_obs))
-        except:
-            pass
-        return return_graph, return_obs
+        tt = torch.stack(return_obs).mean(axis = 0)
+        print("Mean obs: ", tt)
+        return return_obs, return_graph
     
 
 
