@@ -1,0 +1,5 @@
+/var/spool/slurm/slurmd/job29410/slurm_script: line 13: conda: command not found
+Traceback (most recent call last):
+  File "/u/f_giacomarra/repos/torch-erg/ensembler.py", line 1, in <module>
+    from src.torch_erg import load_pglib_opf as lp
+ModuleNotFoundError: No module named 'src'

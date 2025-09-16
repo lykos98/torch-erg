@@ -174,3 +174,14 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+
+# Sbatch files
+.sh
+
+# Error, Outputs files
+.out
+.err
+
+#images
+.png

@@ -4,11 +4,14 @@ import numpy as np
 from .utils import *
 from tqdm import tqdm
 from typing import Union, Tuple
+import torch.nn as nn
+from scipy.sparse.csgraph import connected_components
+from scipy.sparse import csr_matrix
 
 from abc import ABC, abstractmethod
 
 class BaseSampler(ABC):
-    def __init__(self, backend = "cuda"):
+    def __init__(self, backend = "cuda", model=None):
         self.params = 0
         self.states = []
         self.backend = backend
@@ -191,6 +194,11 @@ class BaseSampler(ABC):
     
 
 
+
+
+
+
+
 class MHSampler(BaseSampler, ABC):
     def __init__(self, backend: str):
         super().__init__(backend)
@@ -214,7 +222,45 @@ class MHSampler(BaseSampler, ABC):
         
         return new_mtx, acceptance_prob
 
-    @abstractmethod
+    
+    def observables(self, mtx):
+        pass
+
+
+
+class MHSampler_Hard(BaseSampler, ABC):
+    def __init__(self, backend: str):
+        super().__init__(backend)
+    
+    def proposal(self,mtx, obs, params, ham):
+        
+        new_mtx, i, j = unif_move(mtx)
+        G_sparse = new_mtx.cpu().numpy()  # Create sparse matrix
+        n_components = connected_components(csr_matrix(G_sparse))[0]
+
+        if n_components>1:
+            acceptance_prob = 0
+            return new_mtx, acceptance_prob
+
+        else:
+            
+            new_obs = self.observables(new_mtx)
+            #print("obs are: ", new_obs)
+            #print("params are: ", params)
+            new_ham = self._hamiltonian(new_obs,params)
+
+            
+
+
+            qq = torch.exp(new_ham - ham) 
+            #print("new ham is: ", new_ham)
+            #print("old ham is: ", ham)
+            #print("qq is: ", qq)
+            acceptance_prob = min(1, qq.item())   
+            
+            return new_mtx, acceptance_prob
+
+    
     def observables(self, mtx):
         pass
 
@@ -269,10 +315,72 @@ class GWGSampler(BaseSampler, ABC):
         
         return new_mtx, acceptance_prob
 
-    @abstractmethod
+    
     def observables(self, mtx):
         pass
 
 
 
 
+class GWG_Hybrid_Sampler(BaseSampler, ABC):
+    def __init__(self, backend: str, model: nn.Module):
+        super().__init__(backend, model)
+        self.model = model
+
+        self.model.to(self.backend)
+
+    def _d(self,x):
+        with torch.no_grad():
+            d = -(2*x - 1) * x.grad
+        return d
+    def proposal(self,mtx, obs, params, ham):
+        
+        mtx= mtx.to(self.backend)
+        ham = ham.to(self.backend)
+        comp_ham = ham + self.model(mtx)
+        if mtx.grad is None: 
+            comp_ham.backward(retain_graph = True)
+
+        dx = self._d(mtx)
+        torch.diagonal(dx, 0).zero_()
+        with torch.no_grad():
+            # TODO: 
+            # ask this to fjack
+            q_ix = torch.nn.functional.softmax(dx.ravel(), dim=0)
+            # Vectorized sampling of a single edge
+            #sampled_index = torch.multinomial(q_ix, 1).item()
+            i, j = index_ravel_sampler(q_ix, mtx)
+            new_mtx = mtx.clone().detach()
+            new_mtx[i,j] = 1 - new_mtx[i,j]
+            new_mtx[j,i] = new_mtx[i,j]
+
+        new_mtx.requires_grad_()
+
+        new_obs = self.observables(new_mtx)
+
+        #print("obs are: ", new_obs)
+        #print("params are: ", params)
+        new_ham_base = self._hamiltonian(new_obs,params)
+
+        new_ham_model = self.model(new_mtx)
+
+        new_ham = new_ham_base + new_ham_model
+
+        new_ham.backward(retain_graph = True)
+
+        dx = self._d(new_mtx)
+        torch.diagonal(dx, 0).zero_()
+        with torch.no_grad():
+            q_ix_prime = torch.nn.functional.softmax(dx.ravel(), dim=0)
+
+        qq = torch.exp(new_ham - comp_ham) * q_ix_prime[i * mtx.shape[1] + j]/q_ix[i * mtx.shape[1] + j]
+        #print("new ham is: ", new_ham)
+        #print("old ham is: ", ham)
+        #print("qq is: ", qq)
+        acceptance_prob = min(1, qq.item())   
+        
+        return new_mtx, acceptance_prob
+
+    
+    def observables(self, mtx):
+        pass
