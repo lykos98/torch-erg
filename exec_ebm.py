@@ -16,7 +16,7 @@ for _ in range(200):
     graphs.append(G)
 
 dataset = GraphDataset(graphs)
-model = GNN_EBM(node_feat_dim=dataset.max_nodes, hidden_dim=64, mp_steps=2).to(device)
+model = GNN_EBM(node_feat_dim=dataset.max_nodes, hidden_dim=512, mp_steps=4).to(device)
 opt = torch.optim.Adam(model.parameters(), lr=1e-4)
 
 persistent = []

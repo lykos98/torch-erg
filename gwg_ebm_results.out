@@ -1,55 +1,55 @@
 ERROR: Unable to locate a modulefile for 'miniconda'
 Using device: cuda
-Epoch 0 loss = -0.0015
-Epoch 1 loss = -0.1536
-Epoch 2 loss = -2.1782
-Epoch 3 loss = -15.2732
-Epoch 4 loss = -84.1031
-Epoch 5 loss = -116.5101
-Epoch 6 loss = -7.0144
-Epoch 7 loss = 15.8715
-Epoch 8 loss = 17.8115
-Epoch 9 loss = 12.0226
-Epoch 10 loss = 5.0549
-Epoch 11 loss = -1.0595
-Epoch 12 loss = -4.8392
-Epoch 13 loss = -8.1479
-Epoch 14 loss = -9.9821
-Epoch 15 loss = -21.7436
-Epoch 16 loss = -53.5953
-Epoch 17 loss = -146.8891
-Epoch 18 loss = -415.5170
-Epoch 19 loss = -1103.3796
-Epoch 20 loss = -1949.6775
-Epoch 21 loss = -3975.3168
-Epoch 22 loss = -4290.1556
-Epoch 23 loss = -3620.8329
-Epoch 24 loss = -2638.7362
-Epoch 25 loss = 1168.6231
-Epoch 26 loss = 4657.0907
-Epoch 27 loss = 7224.2457
-Epoch 28 loss = 7347.5994
-Epoch 29 loss = 6316.0046
-Epoch 30 loss = 2873.1780
-Epoch 31 loss = 1127.2665
-Epoch 32 loss = -407.9609
-Epoch 33 loss = -1701.3704
-Epoch 34 loss = -2130.4606
-Epoch 35 loss = -1903.3305
-Epoch 36 loss = -697.8399
-Epoch 37 loss = 537.4013
-Epoch 38 loss = 1217.1167
-Epoch 39 loss = 689.9315
-Epoch 40 loss = 144.0126
-Epoch 41 loss = 8.4828
-Epoch 42 loss = 0.5227
-Epoch 43 loss = 0.1322
-Epoch 44 loss = 0.0935
-Epoch 45 loss = 0.0864
-Epoch 46 loss = 0.0354
-Epoch 47 loss = -0.0458
-Epoch 48 loss = -0.1740
-Epoch 49 loss = -0.3054
+Epoch 0 loss = -0.0025
+Epoch 1 loss = -1.4117
+Epoch 2 loss = -6.3808
+Epoch 3 loss = -3.4140
+Epoch 4 loss = -4.2351
+Epoch 5 loss = -4.2501
+Epoch 6 loss = -5.6631
+Epoch 7 loss = -5.8319
+Epoch 8 loss = -8.0023
+Epoch 9 loss = -7.5424
+Epoch 10 loss = -4.5765
+Epoch 11 loss = -4.4107
+Epoch 12 loss = -3.5197
+Epoch 13 loss = -2.4787
+Epoch 14 loss = -1.8612
+Epoch 15 loss = -2.3208
+Epoch 16 loss = -3.1253
+Epoch 17 loss = -1.4878
+Epoch 18 loss = -1.7028
+Epoch 19 loss = -0.9673
+Epoch 20 loss = -0.5578
+Epoch 21 loss = -1.6311
+Epoch 22 loss = -0.6853
+Epoch 23 loss = -0.8994
+Epoch 24 loss = -1.3172
+Epoch 25 loss = -0.5359
+Epoch 26 loss = -0.6340
+Epoch 27 loss = -1.2606
+Epoch 28 loss = 0.0669
+Epoch 29 loss = -1.2319
+Epoch 30 loss = -0.8999
+Epoch 31 loss = -0.1124
+Epoch 32 loss = -1.1362
+Epoch 33 loss = 0.2542
+Epoch 34 loss = -0.4831
+Epoch 35 loss = -0.3557
+Epoch 36 loss = -0.5565
+Epoch 37 loss = -0.7059
+Epoch 38 loss = -0.2467
+Epoch 39 loss = -0.8507
+Epoch 40 loss = -0.6818
+Epoch 41 loss = -0.5376
+Epoch 42 loss = -0.1085
+Epoch 43 loss = -0.2726
+Epoch 44 loss = -0.6937
+Epoch 45 loss = -0.1973
+Epoch 46 loss = -0.0751
+Epoch 47 loss = -0.8797
+Epoch 48 loss = -0.1632
+Epoch 49 loss = -0.2660
 node feats are:  tensor([[1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
          0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
         [0., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
@@ -110,26 +110,26 @@ node feats are:  tensor([[1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.
          0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 0.],
         [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
          0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1.]])
-MMD metrics: {'degree_mmd': 0.20135796231754363, 'clustering_mmd': 0.3606829357074346}
+MMD metrics: {'degree_mmd': 0.19818679774278677, 'clustering_mmd': 0.009779611068047034}
 === Graph Statistics Comparison ===
 Real graphs: 200 graphs
   Avg nodes:      30.00
-  Avg edges:      87.70
-  Avg degree:     5.85
-  Avg clustering: 0.197
+  Avg edges:      86.66
+  Avg degree:     5.78
+  Avg clustering: 0.198
 Generated graphs: 81 graphs
   Avg nodes:      30.00
-  Avg edges:      134.06
-  Avg degree:     8.94
-  Avg clustering: 0.305
+  Avg edges:      86.73
+  Avg degree:     5.78
+  Avg clustering: 0.204
 Number of connected components in the graph: 1
 observed observables:  tensor([41.,  6.], dtype=torch.float64)
-number of accepted steps is:  96790
-number of rejected samples:  3210
-number of effective updates is:  32263
-[-2.47935793  0.62543846]
-(1987, 2)
-number of accepted steps is:  98013
-number of rejected samples:  1987
-Mean obs:  tensor([40.3036,  6.5596], device='cuda:0', dtype=torch.float64)
+number of accepted steps is:  37325
+number of rejected samples:  62675
+number of effective updates is:  12441
+[-1.05062617  0.01121871]
+(2191, 2)
+number of accepted steps is:  35212
+number of rejected samples:  64788
+Mean obs:  tensor([39.7685,  2.5707], device='cuda:0', dtype=torch.float64)
 original observables:  tensor([41.,  6.], dtype=torch.float64)

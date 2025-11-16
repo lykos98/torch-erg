@@ -31,7 +31,7 @@ opt = torch.optim.Adam(Gmodel.parameters(), lr=1e-4)
 
 persistent = []
 for epoch in range(50):
-    loss = train_one_epoch_pcd(Gmodel, dataset, opt, device, persistent_chains=persistent, mini_steps=10)
+    loss = train_one_epoch_pcd(Gmodel, dataset, opt, device, persistent_chains=persistent, mini_steps=2000)
     print(f"Epoch {epoch} loss = {loss:.4f}")
 
 
