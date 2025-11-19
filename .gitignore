@@ -185,3 +185,14 @@ cython_debug/
 
 #images
 .png
+
+
+#results and big files
+
+results/*
+*.pt
+*.pth
+*.npy
+*.npz
+*.ckpt
+*.pkl
