@@ -32,6 +32,7 @@ def evaluate_param_run(sampler, graph, obs, params, niter=20000,
 
     t0 = time.time()
 
+    print(obs)
     params_hist, graph_hist = sampler.param_run(
         graph=graph,
         observables=obs,
@@ -43,6 +44,15 @@ def evaluate_param_run(sampler, graph, obs, params, niter=20000,
         alpha=alpha,
         min_change=min_change,
         verbose_level=0
+    )
+
+    params_final = params_hist[-1]
+
+    return_obs, return_graph = sampler.sample_run(
+        graph=graph,
+        params=params_final,
+        niter=niter,
+        save_every=save_every,
     )
 
     elapsed = time.time() - t0
@@ -89,7 +99,7 @@ def make_sampler(name: str, backend: str):
 
     elif name == "DLP_":
         class S(DLP_Sampler):
-            def __init__(self, backend): super().__init__(backend, stepsize_alpha=0.3)
+            def __init__(self, backend): super().__init__(backend, stepsize_alpha=0.05)
             def observables(self, mtx): return basic_observables(mtx)
         return S(backend)
     else:
@@ -115,6 +125,7 @@ def compare_samplers(
 
     # Initial parameters for EE
     betas0 = torch.tensor([0.0, 0.0], dtype=torch.float32)
+    #betas0 = torch.tensor([-2., -0.1], dtype=torch.float32)
     obs0 = basic_observables(graph)
 
     results = {}
@@ -131,15 +142,16 @@ def compare_samplers(
         r = evaluate_param_run(
             sampler=sampler,
             graph=graph,
-            observables=obs0,
+            min_change=0.005,
+            obs=obs0,
             params=betas0.clone(),
             niter=niter,
             params_update_every=3,
             save_every=250,
             alpha=0.001,
-            min_change=0.005
         )
         results[sname] = r
+
 
         print(f"Final parameters: {r['final_params']}")
         print(f"Accepted: {r['accepted']}, Rejected: {r['rejected']}")
@@ -167,7 +179,9 @@ def compare_samplers(
 if __name__ == "__main__":
     compare_samplers(
         grid_name="30_ieee",
-        sampler_list=["MH_", "GWG_", "DLMC_", "DLP_" ],
+        #sampler_list=["MH_", "GWG_", "DLP_" ],
+        #sampler_list=["MH_", "GWG_", "DLMC_", "DLP_" ],
+        sampler_list=["DLP_", "GWG_" ],
         niter=30000,
         backend="cuda"
     )

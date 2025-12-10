@@ -46,17 +46,17 @@ class BaseSampler(ABC):
         updated_params += change
         return updated_params
     
-    def param_run(self,   graph:               torch.tensor, 
-                    observables:         torch.tensor, 
-                    params:              torch.tensor,
-                    niter:               int, 
-                    params_update_every: int,
-                    save_every:          int, 
-                    save_params:         bool,
-                    alpha:               float,
-                    min_change:          float,
-                    save_graph:          bool = True,
-                    verbose_level:       int = 0
+    def param_run(self, graph:               torch.tensor, 
+                        observables:         torch.tensor, 
+                        params:              torch.tensor,
+                        niter:               int, 
+                        params_update_every: int,
+                        save_every:          int, 
+                        save_params:         bool,
+                        alpha:               float,
+                        min_change:          float,
+                        save_graph:          bool = True,
+                        verbose_level:       int = 0
             ) -> list[torch.tensor]:
 
         start_graph  = graph.clone().to(self.backend)
@@ -73,7 +73,8 @@ class BaseSampler(ABC):
         current_obs         = self.observables(current_graph)
         current_hamiltonian = self._hamiltonian(current_obs, current_params)
 
-        accepted_steps   = 0
+        self.accepted_steps   = 0
+        self.rejected_samples = 0
 
         return_params = []
         return_graph  = []
@@ -81,7 +82,6 @@ class BaseSampler(ABC):
         #some logging info, for example using gpu or cpu
         #graph dimensions, paramters
         update_steps = 0
-        rejected_samples = 0
 
         for it in tqdm(range(niter)):
             #uniform indexes selection
@@ -99,14 +99,14 @@ class BaseSampler(ABC):
                 current_hamiltonian = self._hamiltonian(current_obs, current_params)
                 #print("current obs are:", current_obs)
 
-                accepted_steps += 1
-                if accepted_steps % params_update_every == 0:
+                self.accepted_steps += 1
+                if self.accepted_steps % params_update_every == 0:
                     update_steps += 1
                     current_params = self._update_parameters(current_obs, start_obs, current_params, alpha, min_change)
                  #   print("params now are: ",current_params)
             else:
-                rejected_samples += 1
-            if accepted_steps % save_every == 0:
+                self.rejected_samples += 1
+            if self.accepted_steps % save_every == 0:
                 #print('number of effective updates is: ', update_steps)
                 if save_graph:
                     return_graph.append(current_graph.clone().detach())
@@ -114,8 +114,8 @@ class BaseSampler(ABC):
                     return_params.append(current_params.clone().detach())
 
         #some logging info also here fraction of samples accepted
-        print('number of accepted steps is: ', accepted_steps)
-        print('number of rejected samples: ', rejected_samples)
+        print('number of accepted steps is: ', self.accepted_steps)
+        print('number of rejected samples: ', self.rejected_samples)
         print('number of effective updates is: ', update_steps)
         
         return_params.append(current_params.clone().detach())
@@ -123,7 +123,6 @@ class BaseSampler(ABC):
         return return_params, return_graph
     
     def sample_run(self, graph:               torch.tensor, 
-                         observables:         torch.tensor, 
                          params:              torch.tensor,
                          niter:               int, 
                          save_every:          int,
@@ -136,13 +135,10 @@ class BaseSampler(ABC):
         burn_in_iter = int(burn_in * niter)
         start_graph  = graph.clone().to(self.backend)
         start_params = params.clone().to(self.backend)
-        start_obs    = observables.clone().to(self.backend)
-
-
 
         current_graph  = start_graph.clone().detach().to(self.backend)
         current_params = start_params.clone().detach().to(self.backend)
-        current_obs    = start_obs.clone().detach().to(self.backend)
+        current_obs    = self.observables(start_graph)
 
         #bootstrap
         current_graph.requires_grad = True
@@ -192,12 +188,6 @@ class BaseSampler(ABC):
         print("Mean obs: ", tt)
         return return_obs, return_graph
     
-
-
-
-
-
-
 
 class MHSampler(BaseSampler, ABC):
     def __init__(self, backend: str):
@@ -441,21 +431,6 @@ class DLMC_Sampler(BaseSampler):
         self.changed_only = changed_only
         self.local_delta_fn = local_delta_fn  # optional: (mtx,i,j,new_bit)-> energy for that local flip
 
-    @torch.no_grad()
-    def _energy_edge_value(self, mtx, params, observables_fn, i, j, bit, base_energy_fn):
-        # Returns energy when edge (i,j) is set to 'bit' (0/1).
-        # Fast path via user callback; fallback to flip-and-eval.
-        if self.local_delta_fn is not None:
-            return base_energy_fn(mtx, params, observables_fn) + self.local_delta_fn(mtx, i, j, bit)
-        # naive fallback
-        old = mtx[i, j].item()
-        if int(old) == int(bit):
-            return base_energy_fn(mtx, params, observables_fn)
-        tmp = mtx.clone()
-        tmp[i, j] = bit
-        tmp[j, i] = bit
-        return base_energy_fn(tmp, params, observables_fn)
-
     def _Q_rates_binary(self, E0, E1):
         """
         Given energies when site=0 (E0) and site=1 (E1), build alpha_,beta_:
@@ -471,23 +446,7 @@ class DLMC_Sampler(BaseSampler):
         beta_ = self.w * g0
         return alpha_, beta_
 
-    def _row_Ph_binary(self, cur_bit, alpha_, beta_):
-        """
-        Exact 2x2 transition (Eq. 37): P^h = exp(Q h) closed-form.
-        Return the row corresponding to current bit (0 or 1).
-        """
-        s = (alpha_ + beta_).clamp_min(1e-30)
-        e = torch.exp(-s * self.h)
-        # matrix entries
-        p00 = beta_/s + (alpha_/s) * e
-        p01 = alpha_/s - (alpha_/s) * e
-        p10 = beta_/s - (beta_/s) * e
-        p11 = alpha_/s + (beta_/s) * e
-        if int(cur_bit) == 0:
-            return torch.stack([p00, p01])  # probs to [0,1]
-        else:
-            return torch.stack([p10, p11])
-
+    @torch.no_grad()
     def _build_proposal_and_sample(self, mtx, params, observables_fn, base_energy_fn):
         """
         Build factorized proposal rows for every edge and sample a full candidate matrix y.
@@ -495,45 +454,128 @@ class DLMC_Sampler(BaseSampler):
           new_mtx, log_q_fwd (sum over sites), cache with per-site info to compute reverse probs.
         """
         n = mtx.shape[0]
-        cur = mtx.clone()
-        new = mtx.clone()
-        log_q_fwd = 0.0
-        # cache info needed for reverse probabilities
-        site_cache = []  # tuples: (i,j, cur_bit, new_bit, alpha_, beta_)
-        # (Optional) precompute current base energy once
-        # We still need E0/E1 per edge; see _energy_edge_value.
-        for i, j in iter_upper_tri_indices(n):
-            cur_bit = int(cur[i, j].item())
-            # energies for bit=0/1 under base target
-            E0 = self._energy_edge_value(cur, params, self.observables, i, j, 0, target_energy_base)
-            E1 = self._energy_edge_value(cur, params, self.observables, i, j, 1, target_energy_base)
-            alpha_, beta_ = self._Q_rates_binary(E0, E1)
-            row = self._row_Ph_binary(cur_bit, alpha_, beta_)
-            row = torch.clamp(row, 1e-30, 1.0)
-            row = row / row.sum()
-            new_bit = torch.multinomial(row, 1).item()
-            log_q_fwd += torch.log(row[new_bit]).item()
-            if new_bit != cur_bit:
-                new[i, j] = new_bit
-                new[j, i] = new_bit
-            site_cache.append((i, j, cur_bit, new_bit, alpha_.item(), beta_.item()))
-        return new, log_q_fwd, site_cache
+        device = mtx.device
+        i_upper, j_upper = torch.triu_indices(n, n, offset=1, device=device)
+        num_edges = len(i_upper)
 
+        cur_bits = mtx[i_upper, j_upper]
+
+        # Create a batch of matrices for energy calculation
+        batch_mtx = mtx.unsqueeze(0).expand(2 * num_edges, -1, -1).clone()
+
+        edge_indices_i = i_upper.repeat(2)
+        edge_indices_j = j_upper.repeat(2)
+        
+        batch_indices = torch.arange(2 * num_edges, device=device)
+
+        bits_to_set = torch.zeros(2 * num_edges, device=device)
+        bits_to_set[num_edges:] = 1.0
+
+        batch_mtx[batch_indices, edge_indices_i, edge_indices_j] = bits_to_set
+        batch_mtx[batch_indices, edge_indices_j, edge_indices_i] = bits_to_set
+        
+        # Compute energies using vmap for batching.
+        batch_obs = torch.vmap(observables_fn)(batch_mtx)
+        energies = batch_obs @ params
+
+        E_all = energies.view(2, num_edges)
+        E0s, E1s = E_all[0], E_all[1]
+
+        # Compute Q rates
+        alphas, betas = self._Q_rates_binary(E0s, E1s)
+
+        # Compute transition probabilities
+        s = (alphas + betas).clamp_min(1e-30)
+        e = torch.exp(-s * self.h)
+        
+        p00 = betas/s + (alphas/s) * e
+        p01 = alphas/s - (alphas/s) * e
+        p10 = betas/s - (betas/s) * e
+        p11 = alphas/s + (betas/s) * e
+        
+        p_trans = torch.stack([p00, p01, p10, p11], dim=1).view(num_edges, 2, 2)
+
+        # Select the correct row of transition probabilities
+        rows = p_trans[torch.arange(num_edges), cur_bits.long(), :]
+        rows = rows.clamp(min=1e-30)
+        rows = rows / rows.sum(dim=1, keepdim=True)
+
+        # Sample new bits
+        new_bits = torch.multinomial(rows, 1).squeeze(-1)
+
+        # Compute forward log probability
+        log_q_fwd = torch.log(rows[torch.arange(num_edges), new_bits]).sum().item()
+
+        # Construct new matrix
+        new_mtx = mtx.clone()
+        new_mtx[i_upper, j_upper] = new_bits.float()
+        new_mtx[j_upper, i_upper] = new_bits.float()
+
+        # Cache info for reverse probability calculation
+        site_cache = {
+            'i_upper': i_upper, 'j_upper': j_upper,
+            'cur_bits': cur_bits, 'new_bits': new_bits,
+        }
+
+        return new_mtx, log_q_fwd, site_cache
+
+    @torch.no_grad()
     def _log_q_reverse(self, new_mtx, old_mtx, params, observables_fn, site_cache):
         """
         Compute sum log P^h_n(y_n -> x_n) under state y (reverse rows depend on y context).
         """
-        log_q_rev = 0.0
-        for (i, j, cur_bit, new_bit, _, _) in site_cache:
-            # Under y context, recompute alpha_,beta_
-            E0y = self._energy_edge_value(new_mtx, params, observables_fn, i, j, 0, target_energy_base)
-            E1y = self._energy_edge_value(new_mtx, params, observables_fn, i, j, 1, target_energy_base)
-            alpha_y, beta_y = self._Q_rates_binary(E0y, E1y)
-            # row for current (which is new_bit) and prob to go back to cur_bit
-            row_y = self._row_Ph_binary(int(new_bit), alpha_y, beta_y)
-            row_y = torch.clamp(row_y, 1e-30, 1.0)
-            row_y = row_y / row_y.sum()
-            log_q_rev += torch.log(row_y[int(cur_bit)]).item()
+        n = new_mtx.shape[0]
+        device = new_mtx.device
+        
+        i_upper = site_cache['i_upper']
+        j_upper = site_cache['j_upper']
+        cur_bits = site_cache['cur_bits']
+        new_bits = site_cache['new_bits']
+        num_edges = len(i_upper)
+
+        # Create batch of matrices based on new_mtx for reverse probabilities
+        batch_mtx = new_mtx.unsqueeze(0).expand(2 * num_edges, -1, -1).clone()
+
+        edge_indices_i = i_upper.repeat(2)
+        edge_indices_j = j_upper.repeat(2)
+        
+        batch_indices = torch.arange(2 * num_edges, device=device)
+
+        bits_to_set = torch.zeros(2 * num_edges, device=device)
+        bits_to_set[num_edges:] = 1.0
+
+        batch_mtx[batch_indices, edge_indices_i, edge_indices_j] = bits_to_set
+        batch_mtx[batch_indices, edge_indices_j, edge_indices_i] = bits_to_set
+        
+        # Compute energies for the batch using vmap.
+        batch_obs = torch.vmap(observables_fn)(batch_mtx)
+        energies = batch_obs @ params
+
+        E_all_y = energies.view(2, num_edges)
+        E0s_y, E1s_y = E_all_y[0], E_all_y[1]
+
+        # Compute Q rates for reverse
+        alphas_y, betas_y = self._Q_rates_binary(E0s_y, E1s_y)
+
+        # Compute transition probabilities for reverse
+        s_y = (alphas_y + betas_y).clamp_min(1e-30)
+        e_y = torch.exp(-s_y * self.h)
+        
+        p00_y = betas_y/s_y + (alphas_y/s_y) * e_y
+        p01_y = alphas_y/s_y - (alphas_y/s_y) * e_y
+        p10_y = betas_y/s_y - (betas_y/s_y) * e_y
+        p11_y = alphas_y/s_y + (betas_y/s_y) * e_y
+        
+        p_trans_y = torch.stack([p00_y, p01_y, p10_y, p11_y], dim=1).view(num_edges, 2, 2)
+
+        # Select rows based on new_bits (starting state for reverse)
+        rows_y = p_trans_y[torch.arange(num_edges), new_bits.long(), :]
+        rows_y = rows_y.clamp(min=1e-30)
+        rows_y = rows_y / rows_y.sum(dim=1, keepdim=True)
+
+        # Probability of transitioning from new_bit back to cur_bit
+        log_q_rev = torch.log(rows_y[torch.arange(num_edges), cur_bits.long()]).sum().item()
+        
         return log_q_rev
 
     def proposal(self, mtx, obs, params, ham):
@@ -663,19 +705,20 @@ def _grad_wrt_mtx(scalar, mtx):
     (g,) = torch.autograd.grad(scalar, mtx, retain_graph=False, create_graph=False)
     return g
 
+
 class DLP_Sampler(BaseSampler):
     """
     Discrete Langevin Proposal (binary, DMALA) for ERG energy U(x)=<g(x),theta>.
     Matches your proposal(...) signature and returns (new_mtx, acceptance_prob).
     """
-    def __init__(self, backend: str, stepsize_alpha: float = 0.3):
+    def __init__(self, backend: str, stepsize_alpha: float = 0.2):
         super().__init__(backend)
         self.alpha = float(stepsize_alpha)
 
     def _flip_block(self, x, mask, flips):
-        y = x.clone()
-        # write flips (0/1) into upper triangle then mirror
-        y[mask] = (x[mask] ^ flips)  # xor toggle
+        y = x.clone().detach()
+        y[mask] = (1. - x[mask]) * flips + x[mask] * (1 - flips)  # xor toggle
+        #(1. - x_cur)*ind + x_cur * (1. - ind)
         y = torch.triu(y, 1)
         y = y + y.T
         return y
@@ -705,7 +748,7 @@ class DLP_Sampler(BaseSampler):
         # ---- Forward: factorized flip sampling
         with torch.no_grad():
             p_fwd = self._dlp_probs(x, Ux, mask)            # per-edge flip probs
-            flips = torch.bernoulli(p_fwd).to(dtype=torch.bool)
+            flips = torch.bernoulli(p_fwd).to(dtype=torch.int32)
             log_q_fwd = (flips * torch.log(p_fwd) + (~flips) * torch.log(1 - p_fwd)).sum().item()
             y = self._flip_block(x, mask, flips)
 
@@ -720,6 +763,7 @@ class DLP_Sampler(BaseSampler):
 
         # ---- MH acceptance in log-space
         log_alpha = (Uy - Ux).item() + (log_q_rev - log_q_fwd)
+        #print(log_alpha, Uy - Ux, log_q_rev, log_q_fwd)
         acc = 1.0 if log_alpha >= 0 else float(torch.exp(torch.tensor(log_alpha)).item())
         return y.detach(), acc
 
