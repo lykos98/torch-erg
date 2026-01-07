@@ -34,7 +34,8 @@ class BaseSampler(ABC):
     def proposal(self,  graph: torch.tensor, 
                         params: torch.tensor, 
                         obs: torch.tensor,
-                        hamiltonian: torch.tensor) -> Tuple[torch.tensor, float]:
+                        hamiltonian: torch.tensor,
+                        mod_ratio: bool = False) -> Tuple[torch.tensor, float]:
         pass
 
     def _update_parameters(self,observed, reference, parameters, alpha, min_change):
@@ -56,6 +57,7 @@ class BaseSampler(ABC):
                         alpha:               float,
                         min_change:          float,
                         save_graph:          bool = True,
+                        tot_accept:          int = 10000000000,
                         verbose_level:       int = 0
             ) -> list[torch.tensor]:
 
@@ -112,6 +114,8 @@ class BaseSampler(ABC):
                     return_graph.append(current_graph.clone().detach())
                 if save_params:
                     return_params.append(current_params.clone().detach())
+            if self.accepted_steps > tot_accept:
+                break
 
         #some logging info also here fraction of samples accepted
         print('number of accepted steps is: ', self.accepted_steps)
@@ -313,21 +317,28 @@ class GWGSampler(BaseSampler, ABC):
 
 
 class GWG_Hybrid_Sampler(BaseSampler, ABC):
-    def __init__(self, backend: str, model: nn.Module):
+    def __init__(self, backend: str, model: nn.Module, mod_ratio: bool = False):
         super().__init__(backend, model)
         self.model = model
+        self.mod_ratio = mod_ratio
 
         self.model.to(self.backend)
 
     def _d(self,x):
         with torch.no_grad():
-            d = -(2*x - 1) * x.grad
+            g = x.grad
+            d = -(2*x - 1) * g
+            #print('Gradient norm:', torch.norm(g))
         return d
     def proposal(self,mtx, obs, params, ham):
         
         mtx= mtx.to(self.backend)
         ham = ham.to(self.backend)
-        comp_ham = ham + self.model(mtx)
+        mod = self.model(mtx)
+        comp_ham = ham + mod
+
+        #print('Model ratio: ', mod / comp_ham)
+
         if mtx.grad is None: 
             comp_ham.backward(retain_graph = True)
 
@@ -356,6 +367,9 @@ class GWG_Hybrid_Sampler(BaseSampler, ABC):
 
         new_ham = new_ham_base + new_ham_model
 
+        mod_ratio = torch.abs(new_ham_model) / (torch.abs(new_ham_model)+torch.abs(new_ham_base)+1e-30)
+
+        #print('Model ratio contribution: ', mod_ratio)
         new_ham.backward(retain_graph = True)
 
         dx = self._d(new_mtx)
@@ -365,10 +379,13 @@ class GWG_Hybrid_Sampler(BaseSampler, ABC):
 
         qq = torch.exp(new_ham - comp_ham) * q_ix_prime[i * mtx.shape[1] + j]/q_ix[i * mtx.shape[1] + j]
         #print("new ham is: ", new_ham)
-        #print("old ham is: ", ham)
+        #print("old ham is: ", comp_ham)
         #print("qq is: ", qq)
-        acceptance_prob = min(1, qq.item())   
-        
+        acceptance_prob = min(1, qq.item())
+        if self.mod_ratio:
+            acceptance_prob = acceptance_prob * (mod_ratio.item()) 
+            return new_mtx, acceptance_prob  
+        #print('Acceptance prob:', acceptance_prob)
         return new_mtx, acceptance_prob
 
     
@@ -831,3 +848,271 @@ class DLP_Hybrid_Sampler(BaseSampler):
     def observables(self, mtx):
         pass
 
+
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from dataclasses import dataclass
+from typing import Tuple
+
+
+# ============================================================
+# Low-level utilities
+# ============================================================
+
+def upper_triangle_mask(n: int, device: torch.device) -> torch.Tensor:
+    """
+    Boolean mask selecting strictly upper-triangular entries of an NxN matrix.
+    """
+    return torch.triu(
+        torch.ones((n, n), dtype=torch.bool, device=device),
+        diagonal=1
+    )
+
+
+def apply_edge_flips(
+    adj: torch.Tensor,
+    mask: torch.Tensor,
+    flips: torch.Tensor
+) -> torch.Tensor:
+    """
+    Apply edge flips to an undirected adjacency matrix.
+
+    Parameters
+    ----------
+    adj   : [N, N] float tensor in {0,1}
+    mask  : upper-triangular boolean mask
+    flips : [E] boolean tensor
+
+    Returns
+    -------
+    Symmetric adjacency matrix with flipped edges.
+    """
+    new_adj = adj.clone()
+
+    upper_edges = new_adj[mask].bool()
+    new_adj[mask] = (upper_edges ^ flips).to(adj.dtype)
+
+    new_adj = torch.triu(new_adj, diagonal=1)
+    new_adj = new_adj + new_adj.T
+    new_adj.fill_diagonal_(0.0)
+
+    return new_adj
+
+
+def grad_wrt_adjacency(
+    scalar_energy: torch.Tensor,
+    adj: torch.Tensor
+) -> torch.Tensor:
+    """
+    Compute gradient of scalar energy w.r.t. adjacency matrix.
+    """
+    if scalar_energy.ndim != 0:
+        raise ValueError(f"Expected scalar energy, got {scalar_energy.shape}")
+
+    (grad,) = torch.autograd.grad(
+        scalar_energy,
+        adj,
+        retain_graph=False,
+        create_graph=False
+    )
+    return grad
+
+
+def log_balancing_weight(
+    delta: torch.Tensor,
+    kind: str = "sqrt"
+) -> torch.Tensor:
+    """
+    Log g(delta) for locally-balanced proposals.
+
+    delta = log π(x^flip) - log π(x)
+    """
+    if kind == "sqrt":
+        return 0.5 * delta
+    elif kind in ("ratio", "a_over_1p_a"):
+        return F.logsigmoid(delta)
+    else:
+        raise ValueError(f"Unknown g_kind='{kind}'")
+
+
+def log1mexp_of_exp(a: torch.Tensor) -> torch.Tensor:
+    """
+    Stable computation of log(1 - exp(-exp(a))).
+    """
+    t = torch.exp(a)
+    out = torch.empty_like(a)
+
+    large = t > 20.0
+    out[large] = 0.0
+    out[~large] = torch.log1p(-torch.exp(-t[~large]) + 1e-30)
+
+    return out
+
+
+# ============================================================
+# DLMC state
+# ============================================================
+
+@dataclass
+class DLMCState:
+    steps: int = 0
+    log_tau: float = 0.0
+    log_z: float = 0.0
+
+
+# ============================================================
+# DLMC Hybrid Sampler
+# ============================================================
+
+class DLMC_Hybrid_Sampler:
+    """
+    Exact DISCS-style Binary DLMC sampler (interpolate solver) for:
+
+        log π(G) = <observables(G), params> + model(G)
+
+    Assumptions:
+    - model(adj) returns a scalar
+    - observables(adj) is differentiable
+    - adj is symmetric, binary, zero diagonal
+    """
+
+    def __init__(
+        self,
+        base_sampler,
+        model: nn.Module,
+        g_kind: str = "sqrt",
+        n_target: float = 3.0,
+        adaptive: bool = True,
+        target_accept: float = 0.574,
+    ):
+        """
+        Parameters
+        ----------
+        base_sampler : instance of your BaseSampler (for observables + Hamiltonian)
+        model        : deep EBM, called as model(adj)
+        """
+        self.base = base_sampler
+        self.model = model.to(base_sampler.backend)
+
+        self.g_kind = g_kind
+        self.n_target = float(n_target)
+        self.adaptive = adaptive
+        self.target_accept = float(target_accept)
+
+        self.state = DLMCState()
+
+    # --------------------------------------------------------
+
+    def logp(self, adj: torch.Tensor, params: torch.Tensor) -> torch.Tensor:
+        """
+        Composite log-density.
+        """
+        erg_term = self.base._hamiltonian(self.base.observables(adj), params)
+        deep_term = self.model(adj)
+
+        if deep_term.numel() != 1:
+            raise ValueError("model(adj) must return a scalar")
+
+        return erg_term + deep_term.view(())
+
+    # --------------------------------------------------------
+
+    @torch.no_grad()
+    def proposal_distribution(
+        self,
+        delta: torch.Tensor,
+        log_tau: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        DISCS interpolate solver (binary DLMC).
+        """
+        log_w = log_balancing_weight(delta, self.g_kind)
+        log_nu = F.logsigmoid(delta)
+
+        s = log_tau + log_w - log_nu
+        threshold = log_nu + log1mexp_of_exp(s)
+
+        return torch.exp(
+            torch.clamp(threshold, max=log_nu)
+        ).clamp(1e-12, 1.0 - 1e-12)
+
+    # --------------------------------------------------------
+
+    def maybe_update_log_tau(self, log_w: torch.Tensor, acc: float):
+        """
+        DISCS-style adaptation of tau.
+        """
+        log_z = torch.logsumexp(log_w, dim=0)
+
+        if self.state.steps == 0:
+            log_tau = torch.log(torch.tensor(self.n_target, device=log_w.device)) - log_z
+            self.state = DLMCState(steps=1, log_tau=float(log_tau), log_z=float(log_z))
+            return
+
+        if not self.adaptive:
+            self.state.steps += 1
+            self.state.log_z = float(log_z)
+            return
+
+        n = torch.exp(torch.tensor(self.state.log_tau + float(log_z)))
+        n = n + 3.0 * (acc - self.target_accept)
+        n = torch.clamp(n, min=1e-6)
+
+        self.state.log_tau = float(torch.log(n) - log_z)
+        self.state.log_z = float(log_z)
+        self.state.steps += 1
+
+    # --------------------------------------------------------
+
+    def proposal(
+        self,
+        graph: torch.Tensor,
+        params: torch.Tensor
+    ) -> Tuple[torch.Tensor, float]:
+        """
+        Generate one DLMC proposal.
+        """
+        device = torch.device(self.base.backend)
+        params = params.to(device)
+
+        x = graph.to(device).detach().clone().requires_grad_(True)
+        n = x.shape[0]
+        mask = upper_triangle_mask(n, device)
+
+        # ----- forward quantities
+        logp_x = self.logp(x, params)
+        grad_x = grad_wrt_adjacency(logp_x, x)
+        delta_x = (1.0 - 2.0 * x[mask]) * grad_x[mask]
+        log_w_x = log_balancing_weight(delta_x, self.g_kind)
+
+        log_tau = torch.tensor(self.state.log_tau, device=device)
+        if self.state.steps == 0:
+            log_tau = torch.log(torch.tensor(self.n_target, device=device)) - torch.logsumexp(log_w_x, dim=0)
+
+        with torch.no_grad():
+            dist_x = self.proposal_distribution(delta_x, log_tau)
+            flips = torch.bernoulli(dist_x).bool()
+            ll_x2y = (torch.log(dist_x) * flips + torch.log(1 - dist_x) * (~flips)).sum()
+            y = apply_edge_flips(x.detach(), mask, flips)
+
+        # ----- reverse quantities
+        y_req = y.detach().clone().requires_grad_(True)
+        logp_y = self.logp(y_req, params)
+        grad_y = grad_wrt_adjacency(logp_y, y_req)
+        delta_y = (1.0 - 2.0 * y_req[mask]) * grad_y[mask]
+
+        with torch.no_grad():
+            dist_y = self.proposal_distribution(delta_y, log_tau)
+            ll_y2x = (torch.log(dist_y) * flips + torch.log(1 - dist_y) * (~flips)).sum()
+
+        # ----- MH acceptance
+        log_acc = (logp_y + ll_y2x) - (logp_x + ll_x2y)
+        acc = torch.exp(torch.clamp(log_acc, max=0.0)).item()
+
+        self.maybe_update_log_tau(log_w_x.detach(), acc)
+
+        return y.detach(), acc
+    def observables(self, mtx):
+        pass

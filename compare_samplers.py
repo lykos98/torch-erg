@@ -7,10 +7,13 @@ from tqdm import tqdm
 
 from src.torch_erg import load_pglib_opf as lp
 from src.torch_erg.samplers import (
-    MHSampler_Hard,
+    MHSampler,
     GWGSampler,
     DLMC_Sampler,
     DLP_Sampler,
+)
+from deep_ebm.utils_ebm import (
+    plot_parameter_evolution,
 )
 
 #############################################################
@@ -28,7 +31,7 @@ def basic_observables(mtx: torch.Tensor) -> torch.Tensor:
 
 def evaluate_param_run(sampler, graph, obs, params, niter=20000,
                        params_update_every=3, save_every=50,
-                       alpha=0.001, min_change=0.005):
+                       alpha=0.0005, min_change=0.001,tot_accept=100000):
 
     t0 = time.time()
 
@@ -43,16 +46,20 @@ def evaluate_param_run(sampler, graph, obs, params, niter=20000,
         save_params=True,
         alpha=alpha,
         min_change=min_change,
+        tot_accept=tot_accept,
         verbose_level=0
     )
+    t1 = time.time()
+    print(f"Parameter estimation completed in {t1 - t0:.2f} seconds")
 
     params_final = params_hist[-1]
 
     return_obs, return_graph = sampler.sample_run(
         graph=graph,
         params=params_final,
-        niter=niter,
+        niter=100000,
         save_every=save_every,
+        burn_in=0.3
     )
 
     elapsed = time.time() - t0
@@ -80,7 +87,7 @@ def evaluate_param_run(sampler, graph, obs, params, niter=20000,
 
 def make_sampler(name: str, backend: str):
     if name == "MH_":
-        class S(MHSampler_Hard):
+        class S(MHSampler):
             def __init__(self, backend): super().__init__(backend)
             def observables(self, mtx): return basic_observables(mtx)
         return S(backend)
@@ -112,9 +119,10 @@ def make_sampler(name: str, backend: str):
 def compare_samplers(
         grid_name="30_ieee",
         sampler_list=["MH_", "GWG_", "DLMC_", "DLP_"],
-        niter=20000,
+        niter=300000,
         backend="cuda",
-        outdir="results/sampler_comparison"
+        tot_accept=10000,
+        outdir="results/sampler_comparison2"
     ):
 
     os.makedirs(outdir, exist_ok=True)
@@ -124,8 +132,8 @@ def compare_samplers(
     graph = torch.tensor(ordmat, dtype=torch.float32)
 
     # Initial parameters for EE
-    betas0 = torch.tensor([0.0, 0.0], dtype=torch.float32)
-    #betas0 = torch.tensor([-2., -0.1], dtype=torch.float32)
+    #betas0 = torch.tensor([0.0, 0.0], dtype=torch.float32)
+    betas0 = torch.tensor([-1, +0.0], dtype=torch.float32)
     obs0 = basic_observables(graph)
 
     results = {}
@@ -146,9 +154,10 @@ def compare_samplers(
             obs=obs0,
             params=betas0.clone(),
             niter=niter,
-            params_update_every=3,
+            params_update_every=2,
             save_every=250,
             alpha=0.001,
+            tot_accept=tot_accept
         )
         results[sname] = r
 
@@ -157,6 +166,8 @@ def compare_samplers(
         print(f"Accepted: {r['accepted']}, Rejected: {r['rejected']}")
         print(f"Acc rate: {r['acceptance_rate']}")
         print(f"Time: {r['elapsed_time']:.3f} sec")
+        parlist = torch.stack(r['params_history']).cpu().numpy()
+        plot_parameter_evolution(parlist, outdir, filename=f"{sname}_{grid_name}_param_evol2.png",)
 
         # save each sampler result separately
         with open(os.path.join(outdir, f"{sname}_{grid_name}_eval.pkl"), "wb") as f:
@@ -178,10 +189,11 @@ def compare_samplers(
 
 if __name__ == "__main__":
     compare_samplers(
-        grid_name="30_ieee",
-        #sampler_list=["MH_", "GWG_", "DLP_" ],
+        grid_name="300_ieee",
+        sampler_list=["MH_", "GWG_", "DLP_" ],
         #sampler_list=["MH_", "GWG_", "DLMC_", "DLP_" ],
-        sampler_list=["DLP_", "GWG_" ],
-        niter=30000,
-        backend="cuda"
+        #sampler_list=["DLP_", "GWG_" ],
+        niter=10000000,
+        backend="cuda",
+        tot_accept=80000,
     )
