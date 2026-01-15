@@ -7,6 +7,10 @@ import torch.nn as nn
 import networkx as nx
 import numpy as np
 
+parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import sys
+sys.path.insert(0, parentdir)
+
 from deep_ebm.utils_ebm import (
     show_graph,
     save_graph,

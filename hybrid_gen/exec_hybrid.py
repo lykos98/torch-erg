@@ -6,6 +6,11 @@ import networkx as nx
 import numpy as np
 import time
 #from deep_ebm.gnn_ebm import TGNN_EBM
+
+parentdir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import sys
+sys.path.insert(0, parentdir)
+
 from deep_ebm.stable_gnn import TGNN_EBM
 from src.torch_erg.samplers import DLP_Hybrid_Sampler, GWG_Hybrid_Sampler, DLMC_Hybrid_Sampler
 
