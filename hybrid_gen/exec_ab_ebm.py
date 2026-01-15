@@ -212,7 +212,7 @@ metrics = evaluate_model_batched(
     device,
     num_graphs=20,
     gibbs_steps=300,
-    batch_size=20,
+    batch_size=batch_size,
 )
 
 print("Evaluation metrics:", metrics)
@@ -222,24 +222,34 @@ print("Evaluation metrics:", metrics)
 # -------------------------------------------------
 
 
-
+BURN_IN = 2000
+THINNING = 100
+N_CHAINS = 20
+SAMPLES_PER_CHAIN = 5
 
 generated = []
+
 with torch.no_grad():
-    for i in range(600):
-        A, feats = dataset[i]
-        A_gen = gibbs_ministeps(
-            A,
-            feats,
-            model,
-            device,
-            mini_steps=300,
-        )
-        G_gen = nx.from_numpy_array(A_gen.cpu().numpy())
-        generated.append(G_gen)
+    for _ in range(N_CHAINS):
+        n = N_NODES  
+        feats = torch.ones((n, NODE_FEAT_DIM), device=device)
+
+        p0 = INIT_P
+        A = (torch.rand(n, n, device=device) < p0).float()
+        A = torch.triu(A, diagonal=1)
+        A = A + A.T
+
+
+        A = gibbs_ministeps(A, feats, model, device, mini_steps=BURN_IN)
+
+        for _ in range(SAMPLES_PER_CHAIN):
+            A = gibbs_ministeps(A, feats, model, device, mini_steps=THINNING)
+            generated.append(nx.from_numpy_array(A.cpu().numpy()))
 
 out_dir = f'results/{experiment_name}'
 os.makedirs(out_dir, exist_ok=True)
+
+pickle.dump(generated, open(os.path.join(out_dir, 'sampled_graphs_ebm.pkl'), 'wb'))
 
 show_graph_grid(generated, rows=2, cols=2, layout="spring", outdir=out_dir)
 compare_statistics(dataset.graphs, generated)
