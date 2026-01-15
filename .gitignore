@@ -193,7 +193,6 @@ enzymes
 enzymes/*
 results/*
 graphs_out/*
-graph_generation/*
 checkpoints/*
 data/*
 *.pt
