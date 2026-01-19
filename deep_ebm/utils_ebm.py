@@ -3,6 +3,9 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import os
 import numpy as np
+
+
+
 from deep_ebm.gnn_ebm import gibbs_ministeps, evaluate_mmd_generated
 
 def evaluate_model(model, dataset, device, num_graphs=50, gibbs_steps=200):

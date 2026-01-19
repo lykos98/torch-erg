@@ -115,7 +115,7 @@ class SpectreAdjDataset(Dataset):
 # -------------------------------------------------
 SPECTRE_DATA_DIR = os.environ.get(
     "SPECTRE_DATA",
-    "/leonardo_scratch/large/userexternal/fgiacoma/SPECTRE",
+    "/leonardo_scratch/large/userexternal/fgiacoma/SPECTRE", #cambiare con percorso appropriato
 )
 if not os.path.isdir(SPECTRE_DATA_DIR):
     raise FileNotFoundError(f"SPECTRE_DATA directory not found: {SPECTRE_DATA_DIR}")
