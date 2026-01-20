@@ -185,3 +185,25 @@ cython_debug/
 
 #images
 .png
+
+
+#results and big files
+
+enzymes
+enzymes/*
+results/*
+graphs_out/*
+checkpoints/*
+data/*
+*.pt
+*.pth
+*.npy
+*.npz
+*.ckpt
+*.pkl
+*.out
+*.err
+*.slurm
+*.log
+*.csv
+*.sh
