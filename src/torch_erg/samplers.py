@@ -312,6 +312,108 @@ class MHSampler(BaseSampler, ABC):
     def observables(self, mtx):
         pass
 
+class ChimeraSamplerFeatures(BaseSampler, ABC):
+    """ 
+        For edge feature suppose I have the features one hot encoded, so 
+        I know what is the distribution at each time?
+    """
+    def __init__(self, backend: str, p_edge: float = 0.8):
+        super().__init__(backend)
+        self.p_edge = p_edge
+    
+    def _d(self,x):
+        with torch.no_grad():
+            d = -(2*x - 1) * x.grad
+        return d
+
+    def __edge_gwg_move(self, graph_tuple: GraphTuple, params: torch.Tensor, 
+                              ham: torch.Tensor):
+        mtx = graph_tuple.adj
+
+        if mtx.grad is None: 
+            ham.backward(retain_graph = True)
+
+        dx = self._d(mtx)
+        torch.diagonal(dx, 0).zero_()
+        with torch.no_grad():
+            # TODO: 
+            # ask this to fjack
+            q_ix = torch.nn.functional.softmax(dx.ravel(), dim=0)
+            # Vectorized sampling of a single edge
+            #sampled_index = torch.multinomial(q_ix, 1).item()
+            i, j = index_ravel_sampler(q_ix, mtx)
+            new_graph_tuple = graph_tuple.clone().detach()
+            new_graph_tuple[i,j] = 1 - new_graph_tuple[i,j]
+            new_graph_tuple[j,i] = new_graph_tuple[i,j]
+
+        new_graph_tuple.requires_grad_()
+
+        new_obs = self.observables(new_graph_tuple)
+
+        #print("obs are: ", new_obs)
+        #print("params are: ", params)
+        new_ham = self._hamiltonian(new_obs,params)
+
+        new_ham.backward(retain_graph = True)
+
+        dx = self._d(new_graph_tuple.adj)
+        torch.diagonal(dx, 0).zero_()
+        with torch.no_grad():
+            q_ix_prime = torch.nn.functional.softmax(dx.ravel(), dim=0)
+
+        qq = torch.exp(new_ham - ham) * q_ix_prime[i * mtx.shape[1] + j]/q_ix[i * mtx.shape[1] + j]
+        #print("new ham is: ", new_ham)
+        #print("old ham is: ", ham)
+        #print("qq is: ", qq)
+        acceptance_prob = min(1, qq.item())   
+        
+        return new_graph_tuple
+
+    def __node_feature_unif_move(self, graph_tuple: GraphTuple):
+        n = graph_tuple.node_features.size(0)
+        k = graph_tuple.node_features.size(1)
+        node_idx = np.random.choice(n) 
+        # choose a different one
+        one_idx  = torch.argmax(graph_tuple.node_features[node_idx]).item()
+        feature_idx = (1 + np.random.choice(k - 1) + one_idx) % k 
+
+        new_graph_tuple = graph_tuple.clone().detach()
+        new_graph_tuple.node_features[node_idx] = 0
+        new_graph_tuple.node_features[node_idx,feature_idx] = 1
+
+        return new_graph_tuple
+
+        
+
+    def proposal(self, graph_tuple: GraphTuple, 
+                       obs: torch.Tensor, 
+                       params: torch.Tensor,
+                       ham: torch.Tensor):
+
+        # choose if I have to go one step into the adj or into the 
+        # features
+
+        if np.random.rand() < self.p_edge:
+            # edge path
+            new_graph_tuple = self.__edge_gwg_move(graph_tuple, params, ham)
+        else:
+            # feature path
+            new_graph_tuple = self.__node_feature_unif_move(graph_tuple)
+        
+        new_obs = self.observables(new_graph_tuple)
+        new_ham = self._hamiltonian(new_obs,params)
+        qq = torch.exp(new_ham - ham) 
+        #print("new ham is: ", new_ham)
+        #print("old ham is: ", ham)
+        #print("qq is: ", qq)
+        acceptance_prob = min(1, qq.item())   
+        
+        return new_graph_tuple, acceptance_prob
+    
+    def observables(self, mtx):
+        pass
+
+
 class MHSamplerFeatures(BaseSampler, ABC):
     """ 
         For edge feature suppose I have the features one hot encoded, so 

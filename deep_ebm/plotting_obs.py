@@ -200,8 +200,8 @@ def plot_energy_comparison(
     # Plotting (paper typography)
     # -------------------------------------------------
     plt.rcParams.update({
-        "font.family": "serif",
-        "font.serif": ["Times New Roman", "Times", "Computer Modern Roman"],
+        #"font.family": "serif",
+        #"font.serif": ["Times New Roman", "Times", "Computer Modern Roman"],
         "mathtext.fontset": "cm",
         "font.size": 11,
         "axes.titlesize": 12,
