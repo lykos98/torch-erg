@@ -3,12 +3,104 @@ import numpy as np
 
 from .utils import *
 from tqdm import tqdm
-from typing import Union, Tuple
+from typing import Union, Tuple, Optional, Any
 import torch.nn as nn
 from scipy.sparse.csgraph import connected_components
 from scipy.sparse import csr_matrix
+from dataclasses import dataclass
 
 from abc import ABC, abstractmethod
+
+@dataclass
+class GraphTuple:
+    adj: torch.Tensor
+    node_features: Optional[torch.Tensor] = None
+    edge_features: Optional[torch.Tensor] = None
+
+    def clone(self):
+        return GraphTuple(
+            adj=self.adj.clone(),
+            node_features=self.node_features.clone() if self.node_features is not None else None,
+            edge_features=self.edge_features.clone() if self.edge_features is not None else None
+        )
+
+    def detach(self):
+        return GraphTuple(
+            adj=self.adj.detach(),
+            node_features=self.node_features.detach() if self.node_features is not None else None,
+            edge_features=self.edge_features.detach() if self.edge_features is not None else None
+        )
+
+    def to(self, *args, **kwargs):
+        return GraphTuple(
+            adj=self.adj.to(*args, **kwargs),
+            node_features=self.node_features.to(*args, **kwargs) if self.node_features is not None else None,
+            edge_features=self.edge_features.to(*args, **kwargs) if self.edge_features is not None else None
+        )
+
+    @property
+    def requires_grad(self):
+        return self.adj.requires_grad
+
+    @requires_grad.setter
+    def requires_grad(self, value):
+        self.adj.requires_grad = value
+        if self.node_features is not None:
+            self.node_features.requires_grad = value
+        if self.edge_features is not None:
+            self.edge_features.requires_grad = value
+
+    def requires_grad_(self, requires_grad=True):
+        self.adj.requires_grad_(requires_grad)
+        if self.node_features is not None:
+            self.node_features.requires_grad_(requires_grad)
+        if self.edge_features is not None:
+            self.edge_features.requires_grad_(requires_grad)
+        return self
+
+    # Helper methods for interoperability with tensor-based logic
+    def size(self, *args, **kwargs):
+        return self.adj.size(*args, **kwargs)
+
+    @property
+    def shape(self):
+        return self.adj.shape
+
+    @property
+    def device(self):
+        return self.adj.device
+
+    @property
+    def dtype(self):
+        return self.adj.dtype
+
+    def __getitem__(self, key):
+        return self.adj[key]
+
+    def __setitem__(self, key, value):
+        self.adj[key] = value
+
+    @property
+    def grad(self):
+        return self.adj.grad
+
+    def __mul__(self, other):
+        return self.adj * other
+
+    def __rmul__(self, other):
+        return other * self.adj
+
+    def __add__(self, other):
+        return self.adj + other
+
+    def __radd__(self, other):
+        return other + self.adj
+
+    def __sub__(self, other):
+        return self.adj - other
+
+    def __rsub__(self, other):
+        return other - self.adj
 
 class BaseSampler(ABC):
     def __init__(self, backend = "cuda", model=None):
@@ -27,15 +119,15 @@ class BaseSampler(ABC):
         return torch.dot(observables, params)
 
     @abstractmethod
-    def observables(self, graph: torch.tensor) -> torch.tensor:
+    def observables(self, graph: Union[torch.Tensor, GraphTuple]) -> torch.Tensor:
         pass
 
     @abstractmethod
-    def proposal(self,  graph: torch.tensor, 
-                        params: torch.tensor, 
-                        obs: torch.tensor,
-                        hamiltonian: torch.tensor,
-                        mod_ratio: bool = False) -> Tuple[torch.tensor, float]:
+    def proposal(self,  graph: Union[torch.Tensor, GraphTuple], 
+                        obs: torch.Tensor,
+                        params: torch.Tensor, 
+                        hamiltonian: torch.Tensor,
+                        mod_ratio: bool = False) -> Tuple[Union[torch.Tensor, GraphTuple], float]:
         pass
 
     def _update_parameters(self,observed, reference, parameters, alpha, min_change):
@@ -47,9 +139,9 @@ class BaseSampler(ABC):
         updated_params += change
         return updated_params
     
-    def param_run(self, graph:               torch.tensor, 
-                        observables:         torch.tensor, 
-                        params:              torch.tensor,
+    def param_run(self, graph:               Union[torch.Tensor, GraphTuple], 
+                        observables:         torch.Tensor, 
+                        params:              torch.Tensor,
                         niter:               int, 
                         params_update_every: int,
                         save_every:          int, 
@@ -59,7 +151,7 @@ class BaseSampler(ABC):
                         save_graph:          bool = True,
                         tot_accept:          int = 10000000000,
                         verbose_level:       int = 0
-            ) -> list[torch.tensor]:
+            ) -> list[torch.Tensor]:
 
         start_graph  = graph.clone().to(self.backend)
         start_params = params.clone().to(self.backend)
@@ -126,13 +218,13 @@ class BaseSampler(ABC):
         return_graph.append(current_graph.clone().detach())
         return return_params, return_graph
     
-    def sample_run(self, graph:               torch.tensor, 
-                         params:              torch.tensor,
+    def sample_run(self, graph:               Union[torch.Tensor, GraphTuple], 
+                         params:              torch.Tensor,
                          niter:               int, 
                          save_every:          int,
                          burn_in:             float = 0.,
                          verbose_level:       int = 0
-            ) -> list[torch.tensor]:
+            ) -> list[torch.Tensor]:
 
         assert burn_in >= 0. and burn_in < 1., "Invalid burn in fraction, should be [0., 1.)"
 
@@ -216,6 +308,67 @@ class MHSampler(BaseSampler, ABC):
         
         return new_mtx, acceptance_prob
 
+    
+    def observables(self, mtx):
+        pass
+
+class MHSamplerFeatures(BaseSampler, ABC):
+    """ 
+        For edge feature suppose I have the features one hot encoded, so 
+        I know what is the distribution at each time?
+    """
+    def __init__(self, backend: str, p_edge: float = 0.8):
+        super().__init__(backend)
+        self.p_edge = p_edge
+    
+
+    def __edge_unif_move(self, graph_tuple: GraphTuple):
+        n = graph_tuple.adj.size(0)
+        i, j = rand_indexes(n)
+        new_graph_tuple = graph_tuple.clone().detach()
+        new_graph_tuple.adj[i,j] = 1 - new_graph_tuple.adj[i,j]
+        new_graph_tuple.adj[j,i] = new_graph_tuple.adj[i,j]
+        return new_graph_tuple
+
+    def __node_feature_unif_move(self, graph_tuple: GraphTuple):
+        n = graph_tuple.node_features.size(0)
+        k = graph_tuple.node_features.size(1)
+        node_idx = np.random.choice(n) 
+        # choose a different one
+        one_idx  = torch.argmax(graph_tuple.node_features[node_idx]).item()
+        feature_idx = (1 + np.random.choice(k - 1) + one_idx) % k 
+
+        new_graph_tuple = graph_tuple.clone().detach()
+        new_graph_tuple.node_features[node_idx] = 0
+        new_graph_tuple.node_features[node_idx,feature_idx] = 1
+
+        return new_graph_tuple
+        
+
+    def proposal(self, graph_tuple: GraphTuple, 
+                       obs: torch.Tensor, 
+                       params: torch.Tensor,
+                       ham: torch.Tensor):
+
+        # choose if I have to go one step into the adj or into the 
+        # features
+
+        if np.random.rand() < self.p_edge:
+            # edge path
+            new_graph_tuple = self.__edge_unif_move(graph_tuple)
+        else:
+            # feature path
+            new_graph_tuple = self.__node_feature_unif_move(graph_tuple)
+        
+        new_obs = self.observables(new_graph_tuple)
+        new_ham = self._hamiltonian(new_obs,params)
+        qq = torch.exp(new_ham - ham) 
+        #print("new ham is: ", new_ham)
+        #print("old ham is: ", ham)
+        #print("qq is: ", qq)
+        acceptance_prob = min(1, qq.item())   
+        
+        return new_graph_tuple, acceptance_prob
     
     def observables(self, mtx):
         pass
