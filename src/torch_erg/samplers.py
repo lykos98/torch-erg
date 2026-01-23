@@ -341,6 +341,7 @@ class ChimeraSamplerFeatures(BaseSampler, ABC):
             q_ix = torch.nn.functional.softmax(dx.ravel(), dim=0)
             # Vectorized sampling of a single edge
             #sampled_index = torch.multinomial(q_ix, 1).item()
+            #i, j = index_ravel_sampler_safe(q_ix, mtx)
             i, j = index_ravel_sampler(q_ix, mtx)
             new_graph_tuple = graph_tuple.clone().detach()
             new_graph_tuple[i,j] = 1 - new_graph_tuple[i,j]
@@ -536,7 +537,7 @@ class GWGSampler(BaseSampler, ABC):
             q_ix = torch.nn.functional.softmax(dx.ravel(), dim=0)
             # Vectorized sampling of a single edge
             #sampled_index = torch.multinomial(q_ix, 1).item()
-            i, j = index_ravel_sampler(q_ix, mtx)
+            i, j = index_ravel_sampler_safe(q_ix, mtx)
             new_mtx = mtx.clone().detach()
             new_mtx[i,j] = 1 - new_mtx[i,j]
             new_mtx[j,i] = new_mtx[i,j]
@@ -605,7 +606,7 @@ class GWG_Hybrid_Sampler(BaseSampler, ABC):
             q_ix = torch.nn.functional.softmax(dx.ravel(), dim=0)
             # Vectorized sampling of a single edge
             #sampled_index = torch.multinomial(q_ix, 1).item()
-            i, j = index_ravel_sampler(q_ix, mtx)
+            i, j = index_ravel_sampler_safe(q_ix, mtx)
             new_mtx = mtx.clone().detach()
             new_mtx[i,j] = 1 - new_mtx[i,j]
             new_mtx[j,i] = new_mtx[i,j]

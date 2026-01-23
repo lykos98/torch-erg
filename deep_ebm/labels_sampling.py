@@ -31,8 +31,9 @@ def generate_2community_labeled_sbm_fixed_n(
         n1 = int(rng.integers(low, high + 1))
         n2 = n - n1
 
-        labels = np.zeros(n, dtype=np.int64)
-        labels[n1:] = 1
+        # OLD CODE - BROKEN: Labels didn't match communities after permutation
+        # labels = np.zeros(n, dtype=np.int64)
+        # labels[n1:] = 1
 
         probs = [[p_in, p_out],
                  [p_out, p_in]]
@@ -45,7 +46,18 @@ def generate_2community_labeled_sbm_fixed_n(
         # --- random permutation ---
         perm = rng.permutation(n)
         G = nx.relabel_nodes(G, {i: int(perm[i]) for i in range(n)})
-        labels = labels[perm]
+        
+        # NEW CODE - FIXED: Create proper community assignment that matches SBM structure
+        # The SBM creates communities [n1, n2], so we need to track which nodes belong to which community
+        community_assignment = np.zeros(n, dtype=np.int64)
+        community_assignment[:n1] = 0  # First n1 nodes belong to community 0
+        community_assignment[n1:] = 1  # Remaining n2 nodes belong to community 1
+        
+        # Apply the same permutation to keep labels aligned with communities
+        labels = community_assignment[perm]
+        
+        # OLD CODE - BROKEN: This shuffled labels randomly, breaking the community-label relationship
+        # labels = labels[perm]
 
         samples.append({
             "G": G,

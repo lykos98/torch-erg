@@ -1,25 +1,3 @@
-"""
-exec_2comm_labels_tgnn_joint_pcd.py
-
-End-to-end executable script for:
-  1) Generate or load a fixed-N, 2-community labeled SBM dataset
-  2) Plot/save 2x2 grid of real graphs (label-colored)
-  3) Train joint (A, labels) EBM with TGNN + batched PCD (positive-energy convention)
-  4) Sample from the trained EBM with long blocked-Gibbs mixing (labels + edges)
-  5) Plot/save a grid of generated graphs (label-colored)
-
-Assumptions:
-  - You have `labels_sampling.py` exactly as you pasted (functions imported below).
-  - You have TGNN_EBM available at `deep_ebm.stable_gnn import TGNN_EBM`
-    (adjust the import if your project differs).
-  - Graph size is fixed N; only community split varies.
-
-Note on Dataset class:
-  - You said your GraphDataset class already exists; in your pasted `labels_sampling.py`
-    it is NOT present. So this exec defines a minimal dataset wrapper.
-    If you already have one, just replace `LabeledAdjDataset` with your import.
-"""
-
 import os
 import time
 import math
@@ -31,18 +9,17 @@ import torch.nn.functional as F
 import networkx as nx
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
-import sys
-sys.path.append("../")
+
+from graph_generation.visualization import show_community_graph, show_community_graph_grid
+from graph_generation.community_sbm import load_community_dataset, GraphTuple, CommunitySBMDataset 
 
 # -----------------------------
 # Your utils
 # -----------------------------
 from deep_ebm.labels_sampling import (
-    generate_2community_labeled_sbm_fixed_n,
     train_pcd_batched_joint,
     blocked_gibbs_ministeps_batch,
     graph_from_adj_labels,
-    plot_graph,
 )
 
 # -----------------------------
@@ -60,33 +37,6 @@ def set_seed(seed: int = 0):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
-
-# ============================================================
-# Dataset wrapper (fixed N)
-# ============================================================
-
-class LabeledAdjDataset(Dataset):
-    """
-    Returns:
-      A:      [N,N] float32
-      labels: [N]   int64 in {0,1}
-    """
-    def __init__(self, samples):
-        self.samples = samples
-        self.graphs = [s["G"] for s in samples]  # for convenience
-
-    def __len__(self):
-        return len(self.samples)
-
-    def __getitem__(self, idx):
-        s = self.samples[idx]
-        G = s["G"]
-        labels = np.asarray(s["labels"], dtype=np.int64)
-
-        A = nx.to_numpy_array(G).astype(np.float32)
-        return torch.from_numpy(A), torch.from_numpy(labels)
-
 
 # ============================================================
 # Plotting: save grid (works with your plot_graph)
@@ -267,158 +217,27 @@ def main():
     SAMPLE_P_EDGE = 0.85 # after training, emphasize edges, still update labels sometimes
 
     # Paths
-    experiment_name = f"2comm_labels_fixedN{N}_pin{P_IN}_pout{P_OUT}_ng{NUM_GRAPHS}"
-    DATA_DIR = os.path.join("data", experiment_name)
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-    dataset_pkl = os.path.join(DATA_DIR, "dataset.pkl")
-    real_grid_png = os.path.join(DATA_DIR, "real_grid_2x2.png")
-    gen_grid_png = os.path.join(DATA_DIR, "generated_grid.png")
-
-    save_dir = os.path.join("checkpoints", experiment_name)
-    os.makedirs(save_dir, exist_ok=True)
 
     # -----------------------------
     # Load or generate dataset
     # -----------------------------
-    if os.path.exists(dataset_pkl):
-        print(f"[INFO] Loading dataset from {dataset_pkl}")
-        with open(dataset_pkl, "rb") as f:
-            samples = pickle.load(f)
-    else:
-        print("[INFO] Dataset not found. Generating...")
-        samples = generate_2community_labeled_sbm_fixed_n(
-            num_graphs=NUM_GRAPHS,
-            n=N,
-            p_in=P_IN,
-            p_out=P_OUT,
-            seed=SEED,
-            min_comm_size=MIN_COMM_SIZE,
-        )
-        with open(dataset_pkl, "wb") as f:
-            pickle.dump(samples, f, protocol=pickle.HIGHEST_PROTOCOL)
-        print(f"[INFO] Saved dataset to {dataset_pkl}")
 
-    dataset = LabeledAdjDataset(samples)
+    graphs, metadata = load_community_dataset("data/community_sbm/params_2_30_0.8_0.02_8/train.pkl")
+
+    graphs_not_one_hot_encoded = [GraphTuple(g.adj, torch.argmax(g.node_features, axis = 1)) for g in graphs]
+
+    dataset = CommunitySBMDataset(graphs_not_one_hot_encoded)
     print(dataset[0][0])
     print(dataset[0][1])
 
+    show_community_graph_grid(np.random.choice(graphs, 4), cols = 2, rows = 2, layout = "spring", outdir = "gnn_figures", filename="grid_reference.png")
 
     # -----------------------------
     # Plot + save 2x2 real grid
     # -----------------------------
-    A_real = [dataset[i][0] for i in range(4)]
-    y_real = [dataset[i][1] for i in range(4)]
-    print(f"[INFO] Saving 2x2 grid of REAL graphs to {real_grid_png}")
-    save_graph_grid(
-        A_real, y_real,
-        out_path=real_grid_png,
-        rows=2, cols=2,
-        layout="spring",
-        seed=SEED,
-        titles=[f"Real #{i}" for i in range(4)],
-        figsize=(8, 8),
-    )
-
-    from graph_generation.visualization import show_community_graph_grid
-    from dataclasses import dataclass
-    from typing import Optional
-
-    @dataclass
-    class GraphTuple:
-        adj: torch.Tensor
-        node_features: Optional[torch.Tensor] = None
-        edge_features: Optional[torch.Tensor] = None
-
-        def clone(self):
-            return GraphTuple(
-                adj=self.adj.clone(),
-                node_features=self.node_features.clone() if self.node_features is not None else None,
-                edge_features=self.edge_features.clone() if self.edge_features is not None else None
-            )
-
-        def detach(self):
-            return GraphTuple(
-                adj=self.adj.detach(),
-                node_features=self.node_features.detach() if self.node_features is not None else None,
-                edge_features=self.edge_features.detach() if self.edge_features is not None else None
-            )
-
-        def to(self, *args, **kwargs):
-            return GraphTuple(
-                adj=self.adj.to(*args, **kwargs),
-                node_features=self.node_features.to(*args, **kwargs) if self.node_features is not None else None,
-                edge_features=self.edge_features.to(*args, **kwargs) if self.edge_features is not None else None
-            )
-
-        @property
-        def requires_grad(self):
-            return self.adj.requires_grad
-
-        @requires_grad.setter
-        def requires_grad(self, value):
-            self.adj.requires_grad = value
-            if self.node_features is not None:
-                self.node_features.requires_grad = value
-            if self.edge_features is not None:
-                self.edge_features.requires_grad = value
-
-        def requires_grad_(self, requires_grad=True):
-            self.adj.requires_grad_(requires_grad)
-            if self.node_features is not None:
-                self.node_features.requires_grad_(requires_grad)
-            if self.edge_features is not None:
-                self.edge_features.requires_grad_(requires_grad)
-            return self
-
-        # Helper methods for interoperability with tensor-based logic
-        def size(self, *args, **kwargs):
-            return self.adj.size(*args, **kwargs)
-
-        @property
-        def shape(self):
-            return self.adj.shape
-
-        @property
-        def device(self):
-            return self.adj.device
-
-        @property
-        def dtype(self):
-            return self.adj.dtype
-
-        def __getitem__(self, key):
-            return self.adj[key]
-
-        def __setitem__(self, key, value):
-            self.adj[key] = value
-
-        @property
-        def grad(self):
-            return self.adj.grad
-
-        def __mul__(self, other):
-            return self.adj * other
-
-        def __rmul__(self, other):
-            return other * self.adj
-
-        def __add__(self, other):
-            return self.adj + other
-
-        def __radd__(self, other):
-            return other + self.adj
-
-        def __sub__(self, other):
-            return self.adj - other
-
-        def __rsub__(self, other):
-            return other - self.adj
-
-    graphs = [GraphTuple(adj = dd[0], node_features = F.one_hot(dd[1], 2)) for dd in dataset ]
-
-    show_community_graph_grid(np.random.choice(graphs,4), rows=2, cols=2)
-
+ 
+    print(f"[INFO] Saving 2x2 grid of REAL graphs to gnn_figures")
+    
     
 
     # -----------------------------
@@ -458,9 +277,9 @@ def main():
         init_p=INIT_P,
         num_classes=NUM_CLASSES,
         print_every=1,
-        save_dir=save_dir,
+        save_dir="gnn_figures",
     )
-    print(f"[INFO] Training done. Checkpoint saved in: {save_dir}")
+    print(f"[INFO] Training done. Checkpoint saved in: gnn_figures")
 
     # -----------------------------
     # Sample from trained model (long mixing)
@@ -482,22 +301,12 @@ def main():
     # -----------------------------
     # Plot + save generated grid
     # -----------------------------
-    rows = 4
-    cols = max(1, int(math.ceil(N_GEN / rows)))
-    cols = min(cols, 6)  # keep it readable
-    rows = int(math.ceil(N_GEN / cols))
 
-    print(f"[INFO] Saving grid of GENERATED graphs to {gen_grid_png}")
-    save_graph_grid(
-        A_gen, y_gen,
-        out_path=gen_grid_png,
-        rows=rows, cols=cols,
-        layout="spring",
-        seed=SEED + 123,
-        titles=[f"Gen #{i}" for i in range(len(A_gen))],
-        figsize=(4 * cols, 4 * rows),
-    )
+    graphs_sampled = [GraphTuple(aa, F.one_hot(yy)) for aa, yy in zip(A_gen, y_gen)]
 
+    print(f"[INFO] Saving grid of GENERATED graphs to")
+
+    show_community_graph_grid(np.random.choice(graphs), 4, cols = 2, rows = 2, layout = "spring", outdir="gnn_figures", filename="grid_results.png")
 
 if __name__ == "__main__":
     main()

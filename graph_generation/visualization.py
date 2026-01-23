@@ -101,7 +101,7 @@ def show_community_graph(
         "figure.titlesize": 16,
     })
     
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=figsize, dpi=100)
     ax.axis("off")
     
     if layout == "kamada":

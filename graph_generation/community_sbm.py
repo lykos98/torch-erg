@@ -16,6 +16,7 @@ import json
 import pickle
 from typing import List, Tuple, Optional, Dict, Any
 from pathlib import Path
+import numpy as np
 
 import torch
 import torch.nn.functional as F
@@ -142,6 +143,12 @@ def generate_community_sbm(
     ).float()
     
     adj = adj.fill_diagonal_(0.0)
+
+
+    perm = np.random.permutation(adj.shape[0])
+    adj = adj[perm,:]
+    adj = adj[:,perm]
+    node_features = node_features[perm,:]
     
     return GraphTuple(
         adj=adj,

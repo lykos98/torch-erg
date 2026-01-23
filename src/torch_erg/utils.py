@@ -74,8 +74,34 @@ def index_ravel_sampler(vec, mtx):
     i = 0
     j = 0
     while(i==j):
+            
         sampled_index = torch.multinomial(vec, 1).item()
         i = sampled_index // mtx.shape[1]
         j = sampled_index % mtx.shape[1]
     #print(i,j)
     return(i,j)
+
+
+def index_ravel_sampler_safe(vec, mtx):
+    n = mtx.shape[0]
+    valid_mask = (torch.ones((n, n), device=vec.device) - torch.eye(n, device=vec.device)).ravel()
+    
+    valid_vec_sum = torch.sum(valid_mask * vec)
+    
+    valid_vec = torch.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
+    valid_vec = torch.clamp(vec, min=0)
+    
+    if valid_vec.sum() == 0 or valid_vec_sum == 0:
+        num_valid = int(valid_mask.sum().item())
+        valid_vec = torch.ones(num_valid, device=vec.device) / num_valid
+    else:
+        valid_vec = valid_vec / valid_vec.sum()
+    
+    sampled_index = torch.multinomial(valid_vec.ravel(), 1).item()
+    nonzero_result = torch.nonzero(valid_mask, as_tuple=True)
+    indices = nonzero_result[0]
+    flat_idx = indices[sampled_index].item()
+    
+    i = flat_idx // n
+    j = flat_idx % n
+    return i, j
